@@ -1,31 +1,146 @@
 'use client';
 
 import { gsap } from 'gsap';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { vec2 } from 'vecteur';
 
 const CustomCursor = () => {
   const cursorRef = useRef(null);
   const menuBtnRef = useRef(null);
+  const [position, setPosition] = useState({
+    previous: vec2(-100, -100),
+    current: vec2(-100, -100),
+    target: vec2(-100, -100),
+    lerpAmount: 0.1,
+  });
+  const [scale, setScale] = useState({
+    previous: 1,
+    current: 1,
+    target: 1,
+    lerpAmount: 0.1,
+  });
+  const [isHovered, setIsHovered] = useState(false);
+  const [hoverEl, setHoverEl] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!cursorRef.current) return;
 
-    const cursor = new Cursor(cursorRef.current);
+    const update = () => {
+      const newPosition = { ...position };
+      newPosition.current.lerp(newPosition.target, newPosition.lerpAmount);
+      const newScale = gsap.utils.interpolate(scale.current, scale.target, scale.lerpAmount);
+
+      const delta = newPosition.current.clone().sub(newPosition.previous);
+
+      newPosition.previous.copy(newPosition.current);
+      setPosition(newPosition);
+      setScale((prev) => ({ ...prev, current: newScale, previous: newScale }));
+
+      gsap.set(cursorRef.current, {
+        x: newPosition.current.x,
+        y: newPosition.current.y,
+      });
+
+      if (!isHovered) {
+        const angle = Math.atan2(delta.y, delta.x) * (180 / Math.PI);
+        const distance = Math.sqrt(delta.x * delta.x + delta.y * delta.y) * 0.04;
+
+        gsap.set(cursorRef.current, {
+          rotate: angle,
+          scaleX: newScale + Math.min(distance, 1),
+          scaleY: newScale - Math.min(distance, 0.3),
+        });
+      }
+    };
+
+    const updateTargetPosition = (x: number, y: number) => {
+      if (isHovered && hoverEl) {
+        const bounds = hoverEl.getBoundingClientRect();
+
+        const cx = bounds.x + bounds.width / 2;
+        const cy = bounds.y + bounds.height / 2;
+
+        const dx = x - cx;
+        const dy = y - cy;
+
+        setPosition((prev) => ({
+          ...prev,
+          target: vec2(cx + dx * 0.15, cy + dy * 0.15),
+        }));
+        setScale((prev) => ({ ...prev, target: 2 }));
+
+        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        const distance = Math.sqrt(dx * dx + dy * dy) * 0.01;
+
+        gsap.set(cursorRef.current, { rotate: angle });
+        gsap.to(cursorRef.current, {
+          scaleX: 2 + (Math.min(distance, 0.6) ** 3) * 3,
+          scaleY: 2 - (Math.min(distance, 0.3) ** 3) * 3,
+          duration: 0.5,
+          ease: 'power4.out',
+          overwrite: true,
+        });
+      } else {
+        setPosition((prev) => ({
+          ...prev,
+          target: vec2(x, y),
+        }));
+        setScale((prev) => ({ ...prev, target: 1 }));
+      }
+    };
 
     const onMouseMove = (event: { clientX: number; clientY: number }) => {
       const x = event.clientX;
       const y = event.clientY;
-      cursor.updateTargetPosition(x, y);
+      updateTargetPosition(x, y);
     };
 
-    gsap.ticker.add(cursor.update.bind(cursor));
+    gsap.ticker.add(update);
     window.addEventListener('pointermove', onMouseMove);
 
     return () => {
-      gsap.ticker.remove(cursor.update);
+      gsap.ticker.remove(update);
       window.removeEventListener('pointermove', onMouseMove);
     };
+  }, [position, scale, isHovered, hoverEl]);
+
+  useEffect(() => {
+    const hoverElements = gsap.utils.toArray('[data-hover]') as HTMLElement[];
+
+    for (const hoverEl of hoverElements) {
+      const hoverBoundsEl = hoverEl.querySelector('[data-hover-bounds]') as HTMLElement;
+      hoverBoundsEl.addEventListener('pointerover', () => {
+        setIsHovered(true);
+        setHoverEl(hoverBoundsEl);
+      });
+      hoverBoundsEl.addEventListener('pointerout', () => {
+        setIsHovered(false);
+        setHoverEl(null);
+      });
+
+      const xTo = gsap.quickTo(hoverEl, 'x', {
+        duration: 1,
+        ease: 'elastic.out(1, 0.3)',
+      });
+      const yTo = gsap.quickTo(hoverEl, 'y', {
+        duration: 1,
+        ease: 'elastic.out(1, 0.3)',
+      });
+
+      hoverEl.addEventListener('pointermove', (event: PointerEvent) => {
+        const { clientX: cx, clientY: cy } = event;
+        const { height, width, left, top } = hoverEl.getBoundingClientRect();
+        const x = cx - (left + width / 2);
+        const y = cy - (top + height / 2);
+        xTo(x * 0.2);
+        yTo(y * 0.2);
+      });
+
+      hoverEl.addEventListener('pointerout', () => {
+        xTo(0);
+        yTo(0);
+      });
+    }
   }, []);
 
   return (
@@ -96,149 +211,5 @@ const CustomCursor = () => {
     </div>
   );
 };
-
-class Cursor {
-  el: HTMLElement;
-  position: {
-    previous: ReturnType<typeof vec2>;
-    current: ReturnType<typeof vec2>;
-    target: ReturnType<typeof vec2>;
-    lerpAmount: number;
-  };
-  scale: {
-    previous: number;
-    current: number;
-    target: number;
-    lerpAmount: number;
-  };
-  isHovered: boolean;
-  hoverEl: HTMLElement | null;
-
-  constructor(targetEl: HTMLElement) {
-    this.el = targetEl;
-
-    this.position = {
-      previous: vec2(-100, -100),
-      current: vec2(-100, -100),
-      target: vec2(-100, -100),
-      lerpAmount: 0.1,
-    };
-    this.scale = {
-      previous: 1,
-      current: 1,
-      target: 1,
-      lerpAmount: 0.1,
-    };
-
-    this.isHovered = false;
-    this.hoverEl = null;
-
-    this.addListeners();
-  }
-
-  update() {
-    this.position.current.lerp(this.position.target, this.position.lerpAmount);
-    this.scale.current = gsap.utils.interpolate(
-      this.scale.current,
-      this.scale.target,
-      this.scale.lerpAmount
-    );
-
-    const delta = this.position.current.clone().sub(this.position.previous);
-
-    this.position.previous.copy(this.position.current);
-    this.scale.previous = this.scale.current;
-
-    gsap.set(this.el, {
-      x: this.position.current.x,
-      y: this.position.current.y,
-    });
-
-    if (!this.isHovered) {
-      const angle = Math.atan2(delta.y, delta.x) * (180 / Math.PI);
-      const distance = Math.sqrt(delta.x * delta.x + delta.y * delta.y) * 0.04;
-
-      gsap.set(this.el, {
-        rotate: angle,
-        scaleX: this.scale.current + Math.min(distance, 1),
-        scaleY: this.scale.current - Math.min(distance, 0.3),
-      });
-    }
-  }
-
-  updateTargetPosition(x: number, y: number) {
-    if (this.isHovered && this.hoverEl) {
-      const bounds = this.hoverEl.getBoundingClientRect();
-
-      const cx = bounds.x + bounds.width / 2;
-      const cy = bounds.y + bounds.height / 2;
-
-      const dx = x - cx;
-      const dy = y - cy;
-
-      this.position.target.x = cx + dx * 0.15;
-      this.position.target.y = cy + dy * 0.15;
-      this.scale.target = 2;
-
-      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-      const distance = Math.sqrt(dx * dx + dy * dy) * 0.01;
-
-      gsap.set(this.el, { rotate: angle });
-      gsap.to(this.el, {
-        scaleX: this.scale.target + (Math.min(distance, 0.6) ** 3) * 3,
-        scaleY: this.scale.target - (Math.min(distance, 0.3) ** 3) * 3,
-        duration: 0.5,
-        ease: 'power4.out',
-        overwrite: true,
-      });
-    } else {
-      this.position.target.x = x;
-      this.position.target.y = y;
-      this.scale.target = 1;
-    }
-  }
-
-  addListeners() {
-    for (const hoverEl of gsap.utils.toArray('[data-hover]')) {
-      if (hoverEl instanceof HTMLElement) {
-        const hoverBoundsEl = hoverEl.querySelector('[data-hover-bounds]') as HTMLElement;
-        hoverBoundsEl.addEventListener('pointerover', () => {
-          this.isHovered = true;
-          this.hoverEl = hoverBoundsEl;
-        });
-        hoverBoundsEl.addEventListener('pointerout', () => {
-          this.isHovered = false;
-          this.hoverEl = null;
-        });
-      }
-
-      // magnetic effect
-      if (hoverEl instanceof HTMLElement) {
-        const xTo = gsap.quickTo(hoverEl as HTMLElement, 'x', {
-          duration: 1,
-          ease: 'elastic.out(1, 0.3)',
-        });
-        const yTo = gsap.quickTo(hoverEl as HTMLElement, 'y', {
-          duration: 1,
-          ease: 'elastic.out(1, 0.3)',
-        });
-
-        hoverEl.addEventListener('pointermove', (event: PointerEvent) => {
-          const { clientX: cx, clientY: cy } = event;
-          const { height, width, left, top } = (hoverEl as HTMLElement).getBoundingClientRect();
-          const x = cx - (left + width / 2);
-          const y = cy - (top + height / 2);
-          xTo(x * 0.2);
-          yTo(y * 0.2);
-        });
-
-        hoverEl.addEventListener('pointerout', () => {
-          xTo(0);
-          yTo(0);
-        });
-      }
-    }
-  }
-}
 
 export default CustomCursor;
