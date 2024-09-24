@@ -1,43 +1,30 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
+import React, { useEffect, useRef } from 'react';
 import { vec2 } from 'vecteur';
 
 const CustomCursor = () => {
   const cursorRef = useRef(null);
-  const ctaRef = useRef(null);
   const menuBtnRef = useRef(null);
 
   useEffect(() => {
+    if (!cursorRef.current) return;
+
     const cursor = new Cursor(cursorRef.current);
 
-    const onMouseMove = (event: { clientX: any; clientY: any }) => {
+    const onMouseMove = (event: { clientX: number; clientY: number }) => {
       const x = event.clientX;
       const y = event.clientY;
       cursor.updateTargetPosition(x, y);
     };
 
-    const onResize = () => {
-      if (menuBtnRef.current && ctaRef.current) {
-        const { x, y, width, height } =
-          menuBtnRef.current.getBoundingClientRect();
-        gsap.set(ctaRef.current, {
-          left: x - width,
-          top: y + height,
-        });
-      }
-    };
-
     gsap.ticker.add(cursor.update.bind(cursor));
     window.addEventListener('pointermove', onMouseMove);
-    window.addEventListener('resize', onResize);
-    onResize();
 
     return () => {
       gsap.ticker.remove(cursor.update);
       window.removeEventListener('pointermove', onMouseMove);
-      window.removeEventListener('resize', onResize);
     };
   }, []);
 
@@ -49,18 +36,20 @@ const CustomCursor = () => {
             className="btn menu-btn relative w-10 h-10 grid place-content-center"
             data-hover
             ref={menuBtnRef}
+            type="button"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
               height="24"
               viewBox="0 0 24 24"
-              fill="none"
               stroke="currentColor"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
+              color="#000000"
             >
+              <title>Menu</title>
               <line x1="4" x2="20" y1="12" y2="12" />
               <line x1="4" x2="20" y1="6" y2="6" />
               <line x1="4" x2="20" y1="18" y2="18" />
@@ -68,32 +57,34 @@ const CustomCursor = () => {
             <div
               data-hover-bounds
               className="absolute inset-0 hover:scale-[4] transition-transform"
-            ></div>
+            />
           </button>
 
           <button
             className="btn close-btn relative w-10 h-10 grid place-content-center"
             data-hover
+            type="button"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
               height="24"
               viewBox="0 0 24 24"
-              fill="none"
               stroke="currentColor"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
               className="lucide lucide-x"
+              color="#000000"
             >
+              <title>Close</title>
               <path d="M18 6 6 18" />
               <path d="m6 6 12 12" />
             </svg>
             <div
               data-hover-bounds
               className="absolute inset-0 hover:scale-[4] transition-transform"
-            ></div>
+            />
           </button>
         </div>
       </main>
@@ -101,23 +92,29 @@ const CustomCursor = () => {
       <div
         ref={cursorRef}
         className="cursor w-6 h-6 rounded-full fixed left-0 top-0 -translate-x-1/2 -translate-y-1/2 bg-[#f2f2f2] mix-blend-difference pointer-events-none"
-      ></div>
-
-      <svg
-        ref={ctaRef}
-        className="cta w-24 fixed -top-[999px] -left-[999px] pointer-events-none"
-        viewBox="0 0 52 43"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* SVG paths... */}
-      </svg>
+      />
     </div>
   );
 };
 
 class Cursor {
-  constructor(targetEl) {
+  el: HTMLElement;
+  position: {
+    previous: ReturnType<typeof vec2>;
+    current: ReturnType<typeof vec2>;
+    target: ReturnType<typeof vec2>;
+    lerpAmount: number;
+  };
+  scale: {
+    previous: number;
+    current: number;
+    target: number;
+    lerpAmount: number;
+  };
+  isHovered: boolean;
+  hoverEl: HTMLElement | null;
+
+  constructor(targetEl: HTMLElement) {
     this.el = targetEl;
 
     this.position = {
@@ -169,8 +166,8 @@ class Cursor {
     }
   }
 
-  updateTargetPosition(x, y) {
-    if (this.isHovered) {
+  updateTargetPosition(x: number, y: number) {
+    if (this.isHovered && this.hoverEl) {
       const bounds = this.hoverEl.getBoundingClientRect();
 
       const cx = bounds.x + bounds.width / 2;
@@ -188,8 +185,8 @@ class Cursor {
 
       gsap.set(this.el, { rotate: angle });
       gsap.to(this.el, {
-        scaleX: this.scale.target + Math.pow(Math.min(distance, 0.6), 3) * 3,
-        scaleY: this.scale.target - Math.pow(Math.min(distance, 0.3), 3) * 3,
+        scaleX: this.scale.target + (Math.min(distance, 0.6) ** 3) * 3,
+        scaleY: this.scale.target - (Math.min(distance, 0.3) ** 3) * 3,
         duration: 0.5,
         ease: 'power4.out',
         overwrite: true,
@@ -202,10 +199,9 @@ class Cursor {
   }
 
   addListeners() {
-    gsap.utils.toArray('[data-hover]').forEach((hoverEl) => {
-      // set hover states
-      {
-        const hoverBoundsEl = hoverEl.querySelector('[data-hover-bounds]');
+    for (const hoverEl of gsap.utils.toArray('[data-hover]')) {
+      if (hoverEl instanceof HTMLElement) {
+        const hoverBoundsEl = hoverEl.querySelector('[data-hover-bounds]') as HTMLElement;
         hoverBoundsEl.addEventListener('pointerover', () => {
           this.isHovered = true;
           this.hoverEl = hoverBoundsEl;
@@ -217,19 +213,19 @@ class Cursor {
       }
 
       // magnetic effect
-      {
-        const xTo = gsap.quickTo(hoverEl, 'x', {
+      if (hoverEl instanceof HTMLElement) {
+        const xTo = gsap.quickTo(hoverEl as HTMLElement, 'x', {
           duration: 1,
           ease: 'elastic.out(1, 0.3)',
         });
-        const yTo = gsap.quickTo(hoverEl, 'y', {
+        const yTo = gsap.quickTo(hoverEl as HTMLElement, 'y', {
           duration: 1,
           ease: 'elastic.out(1, 0.3)',
         });
 
-        hoverEl.addEventListener('pointermove', (event) => {
+        hoverEl.addEventListener('pointermove', (event: PointerEvent) => {
           const { clientX: cx, clientY: cy } = event;
-          const { height, width, left, top } = hoverEl.getBoundingClientRect();
+          const { height, width, left, top } = (hoverEl as HTMLElement).getBoundingClientRect();
           const x = cx - (left + width / 2);
           const y = cy - (top + height / 2);
           xTo(x * 0.2);
@@ -241,7 +237,7 @@ class Cursor {
           yTo(0);
         });
       }
-    });
+    }
   }
 }
 
